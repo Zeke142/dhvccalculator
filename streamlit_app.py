@@ -2,6 +2,7 @@ import streamlit as st
 import numpy as np
 import pandas as pd
 from datetime import datetime
+import altair as alt
 
 st.set_page_config(page_title="DirtHub Tools: Vertical Curve Designer", layout="centered")
 
@@ -38,6 +39,8 @@ else:
     bvc_elevation = st.number_input("BVC Elevation", step=0.01)
     g1 = st.number_input("Grade In (g₁) [%]", step=0.01, format="%.2f")
     g2 = st.number_input("Grade Out (g₂) [%]", step=0.01, format="%.2f")
+    pvi_station = (bvc_station + evc_station) / 2
+    pvi_elevation = bvc_elevation + (g1 / 100) * (pvi_station - bvc_station)
 
 # Common Calculations
 a_value = g2 - g1
@@ -80,10 +83,11 @@ if bvc_station <= station_input <= evc_station:
 else:
     st.warning("Station is outside the limits of the vertical curve.")
 
-# --- Plot Curve Profile ---
+# --- Advanced Vertical Curve Profile with Altair ---
 st.subheader("Vertical Curve Profile")
 if curve_length > 0:
-    x_vals = np.linspace(0, curve_length, 100)
+    # Compute curve data every 10 feet
+    x_vals = np.arange(0, curve_length + 10, 10)
     g1_decimal = g1 / 100
     y_vals = bvc_elevation + g1_decimal * x_vals + (a_value / 100) * x_vals**2 / (2 * curve_length)
 
@@ -91,7 +95,56 @@ if curve_length > 0:
         "Station (ft)": x_vals + bvc_station,
         "Elevation (ft)": y_vals
     })
-    st.line_chart(df.set_index("Station (ft)"))
+
+    # PVI & Labels
+    pvi_df = pd.DataFrame({
+        "Station (ft)": [pvi_station],
+        "Elevation (ft)": [pvi_elevation],
+        "Label": ["PVI"]
+    })
+
+    grade_labels_df = pd.DataFrame({
+        "Station (ft)": [bvc_station, pvi_station, evc_station],
+        "Elevation (ft)": [bvc_elevation, pvi_elevation, evc_elevation],
+        "Label": [
+            f"BVC (g₁ = {g1:.2f}%)",
+            f"PVI",
+            f"EVC (g₂ = {g2:.2f}%)"
+        ]
+    })
+
+    line = alt.Chart(df).mark_line(interpolate='monotone', color="#0072B5").encode(
+        x="Station (ft)",
+        y="Elevation (ft)",
+        tooltip=["Station (ft)", "Elevation (ft)"]
+    )
+
+    area = alt.Chart(df).mark_area(opacity=0.2, color="#0072B5").encode(
+        x="Station (ft)",
+        y="Elevation (ft)"
+    )
+
+    point = alt.Chart(pvi_df).mark_point(filled=True, size=100, color="red").encode(
+        x="Station (ft)",
+        y="Elevation (ft)",
+        tooltip=["Label", "Station (ft)", "Elevation (ft)"]
+    )
+
+    text_labels = alt.Chart(grade_labels_df).mark_text(
+        align="left", baseline="middle", dx=5, dy=-10
+    ).encode(
+        x="Station (ft)",
+        y="Elevation (ft)",
+        text="Label"
+    )
+
+    chart = (area + line + point + text_labels).properties(
+        width=700,
+        height=400,
+        title="Vertical Curve Profile"
+    ).interactive()
+
+    st.altair_chart(chart, use_container_width=True)
 else:
     st.info("Please enter valid BVC and EVC stations to generate the graph.")
 
